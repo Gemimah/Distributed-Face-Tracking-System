@@ -46,59 +46,31 @@ import os
 
 
 
-detector = cv2.CascadeClassifier(
+# Get absolute paths
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+model_path = os.path.join(project_root, "models", "face_landmarker.task")
+embedder_path = os.path.join(project_root, "models", "embedder_arcface.onnx")
+data_path = os.path.join(project_root, "data")
 
-
-
-    cv2.data.haarcascades + 'haarcascade_frontalface_default.xml'
-
-
-
+# Initialize MediaPipe Face Detector
+base_options = python.BaseOptions(model_asset_path=model_path)
+detector_options = vision.FaceDetectorOptions(
+    base_options=base_options,
+    running_mode=vision.RunningMode.IMAGE,
+    min_detection_confidence=0.5
 )
-
-
-
-
-
-
+face_detector = vision.FaceDetector.create_from_options(detector_options)
 
 # Create FaceLandmarker detector using Tasks API
-
-
-
-base_options = python.BaseOptions(model_asset_path="../models/face_landmarker.task")
-
-
-
-options = vision.FaceLandmarkerOptions(
-
-
-
+landmarker_options = vision.FaceLandmarkerOptions(
     base_options=base_options,
-
-
-
     running_mode=vision.RunningMode.IMAGE,
-
-
-
     num_faces=1
-
-
-
 )
+face_mesh = vision.FaceLandmarker.create_from_options(landmarker_options)
 
-
-
-face_mesh = vision.FaceLandmarker.create_from_options(options)
-
-
-
-
-
-
-
-session = ort.InferenceSession("../models/embedder_arcface.onnx")
+session = ort.InferenceSession(embedder_path)
 
 
 
@@ -222,7 +194,7 @@ def preprocess(aligned):
 
 
 
-DB_PATH = "../data/db/face_db.pkl"
+DB_PATH = os.path.join(data_path, "db", "face_db.pkl")
 
 
 
@@ -270,7 +242,7 @@ name = input("Enter identity name: ").strip()
 
 
 
-os.makedirs(f"../data/enroll/{name}", exist_ok=True)
+os.makedirs(os.path.join(data_path, "enroll", name), exist_ok=True)
 
 
 
@@ -348,261 +320,80 @@ while True:
 
 
 
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-
-
-
-
-
-
-
-    faces = detector.detectMultiScale(gray, 1.1, 5, minSize=(100, 100))
-
-
-
-
-
-
-
-    if len(faces) > 0:
-
-
-
-        x, y, w, h = faces[0]
-
-
-
-
-
-
-
+    # Convert frame to RGB for MediaPipe
+    rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb_frame)
+    
+    # Detect faces using MediaPipe
+    detection_result = face_detector.detect(mp_image)
+    
+    if detection_result.detections:
+        detection = detection_result.detections[0]
+        bbox = detection.bounding_box
+        x, y = int(bbox.origin_x), int(bbox.origin_y)
+        w, h = int(bbox.width), int(bbox.height)
+        
         # safety crop bounds
-
-
-
         x, y = max(0, x), max(0, y)
-
-
-
+        w, h = min(w, frame.shape[1] - x), min(h, frame.shape[0] - y)
         crop = frame[y:y+h, x:x+w]
 
-
-
-
-
-
-
         if crop.size == 0:
-
-
-
             continue
-
-
-
-
-
-
-
+            
         rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-
-
-
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
-
-
-
         results = face_mesh.detect(mp_image)
 
-
-
-
-
-
-
         if results.face_landmarks:
-
-
-
             lm = results.face_landmarks[0]
-
-
-
-
-
-
-
             ch, cw = crop.shape[:2]
-
-
-
             pts = np.array(
-
-
-
                 [[lm.landmark[i].x * cw, lm.landmark[i].y * ch] for i in INDICES],
-
-
-
                 dtype=np.float32
-
-
-
             )
-
-
-
-
-
-
 
             M, _ = cv2.estimateAffinePartial2D(pts, REF_POINTS)
 
-
-
-
-
-
-
             if M is None:
-
-
-
                 continue
 
-
-
-
-
-
-
             aligned = cv2.warpAffine(
-
-
-
                 crop, M, (112, 112),
-
-
-
                 flags=cv2.INTER_LINEAR,
-
-
-
                 borderValue=0
-
-
-
             )
-
-
-
-
-
-
 
             blob = preprocess(aligned)
 
-
-
-
-
-
-
             # ✅ correct ONNX call
-
-
-
             emb = session.run(None, {input_name: blob})[0][0]
 
-
-
-
-
-
-
             # normalize embedding safely
-
-
-
             norm = np.linalg.norm(emb)
-
-
-
             if norm == 0:
-
-
-
                 continue
-
-
 
             emb = emb / norm
 
-
-
-
-
-
-
             embeddings.append(emb)
-
-
 
             count += 1
 
-
-
-
-
-
-
-            cv2.imwrite(f"../data/enroll/{name}/{count:04d}.jpg", aligned)
-
-
-
-
-
-
+            cv2.imwrite(os.path.join(data_path, "enroll", name, f"{count:04d}.jpg"), aligned)
 
             cv2.putText(
-
-
-
                 frame,
-
-
-
                 f"Captured {count}",
-
-
-
                 (x, y - 10),
-
-
-
                 cv2.FONT_HERSHEY_SIMPLEX,
-
-
-
                 0.9,
-
-
-
                 (0, 255, 0),
-
-
-
                 2
-
-
-
             )
 
-
-
-
-
-
+            # Show aligned face
+            cv2.imshow("Saved Aligned", aligned)
 
 
 
@@ -633,7 +424,7 @@ while True:
 
 
 
-key = cv2.waitKey(1) & 0xFF
+    key = cv2.waitKey(1) & 0xFF
 
     if key == ord('q') or key == 27:  # q OR ESC
         print("Exiting...")
@@ -667,45 +458,26 @@ key = cv2.waitKey(1) & 0xFF
 
 
 if embeddings:
-
-
-
-    db.setdefault(name, []).extend(embeddings)
-
-
-
-
-
-
+    # Compute mean embedding for this person
+    mean_embedding = np.mean(embeddings, axis=0)
+    mean_embedding = mean_embedding / np.linalg.norm(mean_embedding)
+    
+    # Save to database
+    db[name] = {
+        'embedding': mean_embedding,
+        'samples': len(embeddings),
+        'created_at': str(np.datetime64('now'))
+    }
 
     os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
 
-
-
     with open(DB_PATH, 'wb') as f:
-
-
-
         pickle.dump(db, f)
 
-
-
-
-
-
-
-    print(f"Enrolled {name} with {len(embeddings)} new samples (total: {len(db[name])})")
-
-
-
+    print(f" Successfully enrolled {name} with {len(embeddings)} samples!")
+    print(f"Database saved to {DB_PATH}")
 else:
-
-
-
-    print("No samples captured.")
-
-
-
+    print(" No samples captured.") 
 
 
 

@@ -11,9 +11,9 @@ import threading
 from typing import Set
 
 # ===================== CONFIGURATION =====================
-TEAM_ID = "sudoers"  # Your unique team identifier
+TEAM_ID = "rainbows"  # Your unique team identifier
 MQTT_BROKER_HOST = "157.173.101.159"  # Your VPS MQTT broker
-MQTT_BROKER_PORT = 1883
+MQTT_BROKER_PORT = 1884
 WEBSOCKET_PORT = 9002
 MQTT_TOPIC = f"vision/{TEAM_ID}/movement"
 MQTT_HEARTBEAT_TOPIC = f"vision/{TEAM_ID}/heartbeat"

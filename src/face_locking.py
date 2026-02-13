@@ -23,9 +23,9 @@ CONSECUTIVE_SMILE_FRAMES = 3
 MAX_FACES = 10  # Maximum faces to detect/process per frame
 
 # ===================== MQTT CONFIGURATION =====================
-TEAM_ID = "sudoers"  # Your unique team identifier
+TEAM_ID = "rainbows"  # Your unique team identifier
 MQTT_BROKER = "157.173.101.159"  # Your VPS MQTT broker
-MQTT_PORT = 1883
+MQTT_PORT = 1884
 MQTT_TOPIC = f"vision/{TEAM_ID}/movement"
 MQTT_HEARTBEAT_TOPIC = f"vision/{TEAM_ID}/heartbeat"
 
@@ -46,8 +46,15 @@ BBOX_PADDING = 0.25  # Padding around landmarks for bounding box (extra head roo
 # ===================== INITIALIZATION =====================
 print("Initializing multi-face detection system...")
 
+# Get absolute paths
+script_dir = os.path.dirname(os.path.abspath(__file__))
+project_root = os.path.dirname(script_dir)
+model_path = os.path.join(project_root, "models", "face_landmarker.task")
+embedder_path = os.path.join(project_root, "models", "embedder_arcface.onnx")
+data_path = os.path.join(project_root, "data")
+
 # Initialize FaceLandmarker detector using Tasks API
-base_options = python.BaseOptions(model_asset_path="../models/face_landmarker.task")
+base_options = python.BaseOptions(model_asset_path=model_path)
 options = vision.FaceLandmarkerOptions(
     base_options=base_options,
     running_mode=vision.RunningMode.IMAGE,
@@ -57,11 +64,11 @@ face_mesh = vision.FaceLandmarker.create_from_options(options)
 
 # Initialize ONNX Runtime session for ArcFace
 try:
-    model_path = "../models/embedder_arcface.onnx"
-    if not os.path.exists(model_path):
-        raise FileNotFoundError(f"Model not found at {model_path}")
-    session = ort.InferenceSession(model_path)
-    print(f"Model loaded successfully from {model_path}")
+    if not os.path.exists(embedder_path):
+        raise FileNotFoundError(f"Model not found at {embedder_path}")
+    session = ort.InferenceSession(embedder_path)
+    input_name = session.get_inputs()[0].name
+    print(f"Model loaded successfully from {embedder_path}")
 except Exception as e:
     print(f"Error loading model: {e}")
     exit(1)
@@ -82,13 +89,13 @@ RIGHT_EYE = [263, 387, 385, 362, 380, 373]
 def preprocess(aligned):
     img = aligned.astype(np.float32)
     img = (img - 127.5) / 127.5
-    img = np.transpose(img, (2, 0, 1))
-    img = np.expand_dims(img, axis=0)
+    # ArcFace expects (1, 112, 112, 3) format (batch, height, width, channels)
+    img = np.expand_dims(img, axis=0)   # Add batch dimension
     return img
 
 def get_embedding(aligned):
     blob = preprocess(aligned)
-    emb = session.run(None, {'input.1': blob})[0][0]
+    emb = session.run(None, {input_name: blob})[0][0]
     return emb / np.linalg.norm(emb)
 
 def compute_ear(landmarks, eye_indices, h, w):
@@ -291,25 +298,36 @@ def publish_movement(status, confidence=0.0, face_center_x=None):
 
 # ===================== LOAD FACE DATABASE =====================
 try:
-    db_path = '../data/db/face_db.pkl'
+    db_path = os.path.join(data_path, "db", "face_db.pkl")
     with open(db_path, 'rb') as f:
         db = pickle.load(f)
     reference = {}
-    for name, embs in db.items():
-        if len(embs) > 0:
-            mean_emb = np.mean(np.array(embs), axis=0)
-            mean_emb /= np.linalg.norm(mean_emb)
-            reference[name.lower()] = mean_emb
+    for name, data in db.items():
+        if isinstance(data, dict) and 'embedding' in data:
+            # New format from manual enrollment
+            reference[name.lower()] = data['embedding']
+        else:
+            # Old format - list of embeddings
+            if len(data) > 0:
+                mean_emb = np.mean(np.array(data), axis=0)
+                mean_emb /= np.linalg.norm(mean_emb)
+                reference[name.lower()] = mean_emb
     if TARGET_NAME not in reference:
         print(f"Error: {TARGET_NAME} not found in database!")
-        print(f"Available identities: {list(reference.keys())}")
+        print(f"Available names: {list(reference.keys())}")
         exit(1)
-    target_emb = reference[TARGET_NAME]
-    print(f"Loaded database with {len(reference)} identities")
+    print(f"Loaded {len(reference)} faces from database")
+    print(f"Target: {TARGET_NAME}")
+except FileNotFoundError:
+    print(f"Database not found at {db_path}")
+    print("Please run enrollment first: python src/manual_enroll.py")
+    exit(1)
 except Exception as e:
     print(f"Error loading database: {e}")
-    traceback.print_exc()
     exit(1)
+
+target_emb = reference[TARGET_NAME]
+print(f"Loaded database with {len(reference)} identities")
 
 # ===================== MAIN LOOP =====================
 action_detector = ActionDetector()
@@ -504,7 +522,7 @@ while True:
             locked_start = datetime.now()
             miss_count = 0
             timestamp_str = datetime.now().strftime("%Y%m%d_%H%M%S")
-            history_file = f"../data/{TARGET_NAME}_history_{timestamp_str}.txt"
+            history_file = os.path.join(data_path, f"{TARGET_NAME}_history_{timestamp_str}.txt")
             action_detector.update_baseline(locked_face['lm'], h_frame, w_frame)
             with open(history_file, 'w') as f:
                 f.write(f"Face locking started for {TARGET_NAME.capitalize()} at {datetime.now()}\n")

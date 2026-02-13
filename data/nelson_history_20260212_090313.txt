@@ -1,9 +1,0 @@
-Face locking started for Nelson at 2026-02-12 09:03:13.765287
-Initial similarity: 0.6281
---------------------------------------------------
-09:03:17.720 | smile (score: 0.90)
-09:03:22.455 | smile (score: 0.78)
-09:03:22.789 | smile (score: 0.84)
-
-Lock released at 2026-02-12 09:03:24.953408
-Tracking duration: 0:00:11

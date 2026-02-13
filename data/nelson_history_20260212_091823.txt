@@ -1,8 +1,0 @@
-Face locking started for Nelson at 2026-02-12 09:18:23.814001
-Initial similarity: 0.6331
---------------------------------------------------
-09:18:25.530 | moved right (52px)
-09:18:26.948 | blink (EAR: 0.16)
-
-Lock released at 2026-02-12 09:18:33.068914
-Tracking duration: 0:00:09

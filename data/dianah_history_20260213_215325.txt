@@ -1,0 +1,5 @@
+Face locking started for Dianah at 2026-02-13 21:53:25.702031
+Initial similarity: 0.7511
+--------------------------------------------------
+21:53:26.058 | blink (EAR: 0.18)
+21:53:26.058 | smile (score: 0.70)

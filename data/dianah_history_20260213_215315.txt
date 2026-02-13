@@ -1,0 +1,6 @@
+Face locking started for Dianah at 2026-02-13 21:53:15.590005
+Initial similarity: 0.6862
+--------------------------------------------------
+
+Lock released at 2026-02-13 21:53:18.208233
+Tracking duration: 0:00:02
